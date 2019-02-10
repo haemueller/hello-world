@@ -455,19 +455,10 @@
 			warn "\nIncorrect number of inputs to hugefilter() sub, line ", __LINE__,".";
 			sleep 5; die;
 		}
-		{
-			no warnings qw/ void /;
-			my $trouvaille = "(hugefilter() line ", __LINE__, " ).\n\n";		
-			unless ( -r $_[0] ) { die "\nNo readable file supplied as ARGV[0] $trouvaille"; }
-			unless ( -s $_[0] ) {    
-				die "\nFile supplied as ARGV[0] non-existent $trouvaille\n" if( $! );
-				warn "\nEmpty file supplied as ARBGV[0] $trouvaille\n";
-				return $_[0];
-			}
-			unless ( is_arrayref( $_[1] )) {
-				die "\nNo proper array ref as ARGV[1] (hugefilter() line ", __LINE__,".\n\n";
-			}
+		unless ( is_arrayref( $_[1] )) {
+			die "\nNo proper array ref as ARGV[1] (hugefilter() line ", __LINE__,".\n\n";
 		}
+	
 		my ( $splitter, $patterns ) = map { $_ } @{ $_[1] };
 		my $search = join( '|', map { $_ } @$patterns );
 		my $realbigfile = $_[0];
@@ -536,19 +527,18 @@
 		my ( $splitter, $patterns ) = map { $_ } @$details;
 	     	my @search = split( /&&/, "@$patterns" );
 		my $truepath = $fullpath;
-		my $inmemory;     				
+		my $inmemory = 0;     				
 		while ( scalar @search ) {
 			my $item = shift @search;
 		        next if ( $item =~ m/[&|]+/g );
 			$fullpath = $inmemory unless ( $fullpath );
 			my $latestinput = hugefilter( $fullpath, [ $splitter, [$item] ], 'nodisplay' );
-			$inmemory = "$configured{CONFIGFILE}shortmemory.txt";  # file fastest in MCE
-			open ( my $fh, '+>', $inmemory ) or die "\nFile could not be opened : $! \n\n";
+			open ( my $fh, '+>', \$inmemory ) or die "\nMemory file could not be opened : $! \n\n";
 			print $fh @$latestinput;
 			close $fh,
 			$fullpath = 0;
 			next if ( scalar @search -1 );
-			return hugefilter( $inmemory, [ $splitter, [$item] ], [ $truepath, $patterns ] );
+			return hugefilter( \$inmemory, [ $splitter, [$item] ], [ $truepath, $patterns ] );
 		}
 	} # End of sub
 
@@ -661,7 +651,7 @@
 				goto RE2;
 			}
 			else  {
-				my $ret = readit( $fullpath );     print "\nRET : $ret \n";
+				my $ret = readit( $fullpath );     
 				unless ( defined $ret ) { &retour; goto RE2; }
 				unless ( $ret ) { goto RE2; } 
 				getlastpath( $ret );
