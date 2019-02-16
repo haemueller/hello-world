@@ -23,6 +23,7 @@
 	use Hash::Util qw/ hash_locked unlock_value lock_value /;
 	use File::stat qw(:FIELDS);
 	# use FileHandle;
+	# use File::Map;
 	# use English;
 	# use Search::Elasticsearch;
 	# use Config::IniFiles;
@@ -60,7 +61,7 @@
 					die "\nIncorrect number or type of arguments : $!";
 		}
 		my $curdir = getcwd;
-		$$conf{LOGDIRECTORY} = "$curdir/$subd";
+		$$conf{LOGDIRECTORY} = ( $subd =~ /\.\./ ) ? $curdir : "$curdir/$subd";
 		chdir $configured{LOGDIRECTORY};
 		print "\nNew directory : $configured{LOGDIRECTORY}\n";
 		return $conf;
@@ -82,9 +83,7 @@
 			elsif ( -f $subd ) { return 1; }
 			else { return undef; }
 		}
-		else {
-			$subdirs = '';
-		}
+		# $subdirs = '';
 		return showdircontents( \%configured, $subdirs );
 	} # End of sub
 
@@ -164,7 +163,7 @@
 		$tb -> cell_width( 20 );
 		my @sorted = sort { $a cmp $b } @$dirs;
 		foreach my $item  ( @sorted )  {
-			$item = ( $count == 2 ) ? "$item" : "$item,";
+			$item = "$item,";
 			my $dirarray = colorit( $item );
 			my $ansa = grep { $item =~ /$_/ } @$dirarray;
 		       	$item = "/$item" if ( $ansa );
@@ -326,8 +325,9 @@
 	sub getlogfilename  {
 		my $logname = shift;
 		$logname = trim( $logname );
-		$logname = lc( $logname );
-		return $logname if ( $logname =~ /\w+\.log$|^\/\w+/ );
+		$logname = lc( $logname );	
+		return $logname if ( -s $logname && $logname =~ /\w+\.log$|^\/\w+/ );
+		if ( $logname =~ /^([\.]{2})$/ ) { chdir("$logname/"); return $logname; } 
 
 		my %selector = (
 				xorg => 'Xorg.0.log',
@@ -355,7 +355,7 @@
 			sleep 6; return 0;
 		}
 		return getlastpath() unless ( $logname );
-		return getlastpath()->( $ret );
+		return $ret; 
 	} # End of sub
 
 
@@ -437,11 +437,11 @@
 					error => [ qr/$mysqlfilter/, $searches ],
 					Xorg => [ qr/$Xorg0filter/, $searches ],
 					zeyple => [ qr/$zeyplefilter/, $searches ],
-					_default_  => [ qr/\R/m, $searches ],
 			   	     );
-		my $realbigfile = $_[0];
-
-		my $input = $filterdispatch{$logname};
+	
+		my $input = $filterdispatch{$logname} //  [ qr/\R/m, $searches ];
+		unless ( $filterdispatch{$logname} ) { print BOLD, BRIGHT_BLUE, 
+				"\n   Parse specifics not yet calibrated for $logname. Let's try anyway...\n\n", RESET; }
 		return $input;
 	}  # End of sub
 
@@ -463,12 +463,12 @@
 		my $search = join( '|', map { $_ } @$patterns );
 		my $realbigfile = $_[0];
 
-		my $totality = sub { 	MCE::Loop::init { chunk_size => 1, use_slurpio => 1 };
+		my $totality = sub { 	MCE::Loop::init { chunk_size => 1, use_slurpio => 1, max_workers => 8 };
 					unlock_value( %configured, 'TOTAL' );
 					$configured{TOTAL} = mce_loop_f  {
 						my ( $mce, $slurp_ref, $chunk_id ) = @_;
 						my $out = grep { /$splitter/g } ( $_ );
-						MCE -> gather( + $out );
+						MCE -> gather( $out );
 					} $realbigfile;
 					lock_value( %configured, 'TOTAL' );
 				   };  # End of MCE_loop_f1
@@ -547,6 +547,7 @@
 	# TBD ...or another compatible text search engine. Objective: weighted, more complex searches, speed
 	sub elasticfilter  {
 		# use Search::Elasticsearch;
+		# use File::Map
 		my ( @in ) = @_;
 		unless ( 2 == scalar @in ) {
 			warn "\nIncorrect number of inputs to elasticfilter() sub, line ",  __LINE__, ".";
@@ -624,8 +625,9 @@
 
 	my $fullpath;
 	state $count = 0;
-	sub retour {			
-		print BOLD, BLUE, "\nInvalid entry $fullpath: please try again \n\a\n", RESET;
+	sub retour {	
+		my $route = ( $fullpath =~ /\d/ ) ? "is n/a " : $fullpath;		
+		print BOLD, BLUE, "\nInvalid entry $route: please try again \n\a\n", RESET;
 		die "\nToo many futile attempts  ( $!)\n\n" if ( $count++ > 2 );
 	}
 
@@ -643,8 +645,8 @@
 				sleep 2;
 				goto RE2;
 			}
-			$fullpath = getlogfilename( $path );
-			unless ( $fullpath =~ m{[\.]{1,2}/|[\.~/]?(\W?[A-Za-z0-9]+)+\.?(log)?$}g ) {
+			$fullpath = getlogfilename( $path );   	
+			unless ( $fullpath =~ m{([\.]{2}\W?)|^[\.~]?(\W?[A-Za-z0-9]+)+\.?(log)?$}g ) {
 				print BOLD, BLUE, "\n...sorry, that looks like an invalid path.\n", RESET;
 				&linehere; print "\n";
 				sleep 5; print "\nSo try again please.\n\n";
@@ -654,7 +656,7 @@
 				my $ret = readit( $fullpath );     
 				unless ( defined $ret ) { &retour; goto RE2; }
 				unless ( $ret ) { goto RE2; } 
-				getlastpath( $ret );
+				return getlastpath( $fullpath );
 			}
 		};
 
